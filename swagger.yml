@@ -1,0 +1,42 @@
+components:
+  schemas:
+    UrlAnalysisRequest:
+      type: object
+      properties:
+        urls:
+          type: array
+          items:
+            type: string
+          description: List of URLs to be analyzed.
+      required:
+        - urls
+    UrlAnalysisResponse:
+      type: array
+      items:
+        type: object
+        properties:
+          url:
+            type: string
+            description: The URL that was analyzed.
+          isAppropriate:
+            type: boolean
+            description: Indicates whether the content is appropriate.
+          error:
+            type: string
+            description: Error message if content could not be analyzed.
+/analyze_urls:
+  post:
+    summary: Analyze the appropriateness of given URLs.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/UrlAnalysisRequest"
+    responses:
+      200:
+        description: A list of analyzed URLs with their appropriateness status.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UrlAnalysisResponse"
