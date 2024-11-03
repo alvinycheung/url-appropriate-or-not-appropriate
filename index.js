@@ -13,42 +13,57 @@ const isDevMode = ENV_MODE === "development";
 
 app.use(express.json());
 
+// Helper function to add a delay
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 // POST /analyze_urls
 app.post("/analyze_urls", async (req, res) => {
   if (isDevMode) console.log("📥 Received request to analyze URLs".blue);
   const { urls } = req.body;
-  const results = await Promise.all(
-    urls.map(async (url) => {
-      try {
-        if (isDevMode) console.log(`🌐 Fetching content from URL: ${url}`.cyan);
-        // Fetch HTML content
-        const response = await axios.get(url);
-        const htmlContent = response.data;
 
+  let allResults = [];
+
+  for (const url of urls) {
+    if (isDevMode) console.log(`🌐 Fetching content from URL: ${url}`.cyan);
+    try {
+      // Fetch HTML content
+      const response = await axios.get(url);
+      const htmlContent = response.data;
+
+      if (isDevMode)
+        console.log(`🤖 Analyzing content with GPT-4 for URL: ${url}`.yellow);
+      // Analyze content with OpenAI API
+      const analysis = await analyzeContentWithGpt(htmlContent);
+      if (isDevMode) console.log(`✅ Analysis complete for URL: ${url}`.green);
+      allResults.push({
+        url,
+        isAppropriate: analysis.isAppropriate,
+        reason: analysis.reason,
+      });
+    } catch (error) {
+      if (error.code === "ENOTFOUND") {
         if (isDevMode)
-          console.log(`🤖 Analyzing content with GPT-4 for URL: ${url}`.yellow);
-        // Analyze content with OpenAI API
-        const analysis = await analyzeContentWithGpt(htmlContent);
-        if (isDevMode)
-          console.log(`✅ Analysis complete for URL: ${url}`.green);
-        return {
+          console.error(`❌ DNS Error: Could not resolve URL: ${url}`.red);
+        allResults.push({
           url,
-          isAppropriate: analysis.isAppropriate,
-          reason: analysis.reason,
-        };
-      } catch (error) {
+          isAppropriate: false,
+          error: "DNS resolution failed",
+        });
+      } else {
         if (isDevMode)
           console.error(
             `❌ Error fetching or analyzing URL: ${url} - ${error.message}`.red
           );
-        return { url, isAppropriate: false, error: error.message };
+        allResults.push({ url, isAppropriate: false, error: error.message });
       }
-    })
-  );
+    }
+    // Adding a delay to avoid rate-limiting issues with OpenAI
+    await delay(2000);
+  }
 
   if (isDevMode)
     console.log("📤 Sending response with analysis results".magenta);
-  res.json(results);
+  res.json(allResults);
 });
 
 // Function to analyze HTML content with OpenAI API
@@ -96,12 +111,21 @@ async function analyzeContentWithGpt(content) {
     if (isDevMode) console.log("✅ Content marked as appropriate".green);
     return { isAppropriate: true, reason: "appropriate content" };
   } catch (error) {
-    if (isDevMode)
-      console.error(
-        "❌ Error analyzing content with OpenAI API:",
-        error.message.red
-      );
-    return { isAppropriate: false, reason: "Error in analysis" }; // Mark as inappropriate if GPT fails
+    if (error.response && error.response.status === 429) {
+      if (isDevMode)
+        console.error(
+          "❌ Error analyzing content with OpenAI API: Rate limit exceeded (429)"
+            .red
+        );
+      return { isAppropriate: false, reason: "Rate limit exceeded" };
+    } else {
+      if (isDevMode)
+        console.error(
+          "❌ Error analyzing content with OpenAI API:",
+          error.message.red
+        );
+      return { isAppropriate: false, reason: "Error in analysis" }; // Mark as inappropriate if GPT fails
+    }
   }
 }
 
